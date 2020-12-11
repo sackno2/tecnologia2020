@@ -3,7 +3,7 @@
   require_once('includes/load.php');
   if($session->isUserLoggedIn(true)) { redirect('home.php', false);}
 
-  echo "Cambio con branch test"
+  echo "Cambio con branch test";
   
 ?>
 <?php include_once('layouts/header.php'); ?>
