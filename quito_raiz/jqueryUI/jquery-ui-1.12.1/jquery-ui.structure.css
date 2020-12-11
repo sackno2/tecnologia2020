@@ -1,0 +1,442 @@
+<?php
+/**
+ * Created by PhpStorm.
+ * User: Ashot
+ * Date: 3/24/15
+ * Time: 21:23
+ */
+namespace  Zxing\Common\Detector;
+
+use \Zxing\NotFoundException;
+use \Zxing\ResultPoint;
+use \Zxing\BitMatrix;
+
+/*
+ *
+ *
+import com.google.zxing.NotFoundException;
+import com.google.zxing.ResultPoint;
+import com.google.zxing.common.BitMatrix;
+
+ */
+//require_once('./lib/NotFoundException.php');
+//require_once('./lib/ResultPoint.php');
+//require_once('./lib/common/BitMatrix.php');
+
+
+/**
+ * <p>A somewhat generic detector that looks for a barcode-like rectangular region within an image.
+ * It looks within a mostly white region of an image for a region of black and white, but mostly
+ * black. It returns the four corners of the region, as best it can determine.</p>
+ *
+ * @author Sean Owen
+ * @port Ashot Khanamiryan
+ */
+class MonochromeRectangleDetector {
+    private static $MAX_MODULES = 32;
+    private  $image;
+    function __construct($image){
+        $this->image = $image;
+        
+    }
+
+    /**
+     * <p>Detects a rectangular region of black and white -- mostly black -- with a region of mostly
+     * white, in an image.</p>
+     *
+     * @return {@link ResultPoint}[] describing the corners of the rectangular region. The first and
+     *  last points are opposed on the diagonal, as are the second and third. The first point will be
+     *  the topmost point and the last, the bottommost. The second point will be leftmost and the
+     *  third, the rightmost
+     * @throws NotFoundException if no Data Matrix Code can be found
+     */
+    public function detect(){
+
+        $height = $this->image->getHeight();
+        $width = $this->image->getWidth();
+        $halfHeight = $height / 2;
+        $halfWidth = $width / 2;
+
+        $deltaY = max(1, $height / (self::$MAX_MODULES * 8));
+        $deltaX = max(1, $width / (self::$MAX_MODULES * 8));
+
+
+        $top = 0;
+        $bottom = $height;
+        $left = 0;
+        $right = $width;
+        $pointA = $this->findCornerFromCenter($halfWidth, 0, $left, $right,
+                $halfHeight, -$deltaY, $top, $bottom, $halfWidth / 2);
+    $top = (int) $pointA->getY() - 1;
+    $pointB = $this->findCornerFromCenter($halfWidth, -$deltaX, $left,$right,
+                $halfHeight, 0, $top, $bottom, $halfHeight / 2);
+    $left = (int) $pointB->getX() - 1;
+    $pointC = $this->findCornerFromCenter($halfWidth, $deltaX, $left, $right,
+                $halfHeight, 0, $top, $bottom, $halfHeight / 2);
+    $right = (int) $pointC->getX() + 1;
+    $pointD = $this->findCornerFromCenter($halfWidth, 0, $left, $right,
+                $halfHeight, $deltaY, $top, $bottom, $halfWidth / 2);
+    $bottom = (int) $pointD->getY() + 1;
+
+    // Go try to find po$A again with better information -- might have been off at first.
+    $pointA = $this->findCornerFromCenter($halfWidth, 0, $left, $right,
+        $halfHeight, -$deltaY, $top, $bottom, $halfWidth / 4);
+
+    return new ResultPoint( $pointA, $pointB, $pointC, $pointD );
+  
+    }
+
+
+
+    /**
+     * Attempts to locate a corner of the barcode by scanning up, down, left or right from a center
+     * point which should be within the barcode.
+     *
+     * @param centerX center's x component (horizontal)
+     * @param deltaX same as deltaY but change in x per step instead
+     * @param left minimum value of x
+     * @param right maximum value of x
+     * @param centerY center's y component (vertical)
+     * @param deltaY change in y per step. If scanning up this is negative; down, positive;
+     *  left or right, 0
+     * @param top minimum value of y to search through (meaningless when di == 0)
+     * @param bottom maximum value of y
+     * @param maxWhiteRun maximum run of white pixels that can still be considered to be within
+     *  the barcode
+     * @return a {@link com.google.zxing.ResultPoint} encapsulating the corner that was found
+     * @throws NotFoundException if such a point cannot be found
+     */
+    private function  findCornerFromCenter($centerX,
+                                           $deltaX,
+                                           $left,
+                                           $right,
+                                           $centerY,
+                                           $deltaY,
+                                           $top,
+                                           $bottom,
+                                           $maxWhiteRun){
+        $lastRange = null;
+        for ($y = $centerY, $x = $centerX;
+             $y < $bottom && $y >= $top && $x < $right && $x >= $left;
+        $y += $deltaY, $x += $deltaX) {
+            $range = 0;
+      if ($deltaX == 0) {
+          // horizontal slices, up and down
+          $range = $this->blackWhiteRange($y, $maxWhiteRun, $left, $right, true);
+      } else {
+          // vertical slices, left and right
+          $range = $this->blackWhiteRange($x, $maxWhiteRun, $top, $bottom, false);
+      }
+      if ($range == null) {
+          if ($lastRange == null) {
+              throw NotFoundException::getNotFoundInstance();
+          }
+          // lastRange was found
+          if ($deltaX == 0) {
+              $lastY = $y - $deltaY;
+          if ($lastRange[0] < $centerX) {
+                  if ($lastRange[1] > $centerX) {
+                      // straddle, choose one or the other based on direction
+                      return new ResultPoint($deltaY > 0 ? $lastRange[0] : $lastRange[1], $lastY);
+            }
+            return new ResultPoint($lastRange[0], $lastY);
+          } else {
+                  return new ResultPoint($lastRange[1], $lastY);
+          }
+        } else {
+              $lastX = $x - $deltaX;
+          if ($lastRange[0] < $centerY) {
+                  if ($lastRange[1] > $centerY) {
+                      return new ResultPoint($lastX, $deltaX < 0 ? $lastRange[0] : $lastRange[1]);
+            }
+            return new ResultPoint($lastX, $lastRange[0]);
+          } else {
+                  return new ResultPoint($lastX, $lastRange[1]);
+          }
+        }
+      }
+      $lastRange = $range;
+    }
+    throw NotFoundException::getNotFoundInstance();
+    }
+
+
+
+    /**
+     * Computes the start and end of a region of pixels, either horizontally or vertically, that could
+     * be part of a Data Matrix barcode.
+     *
+     * @param fixedDimension if scanning horizontally, this is the row (the fixed vertical location)
+     *  where we are scanning. If scanning vertically it's the column, the fixed horizontal location
+     * @param maxWhiteRun largest run of white pixels that can still be considered part of the
+     *  barcode region
+     * @param minDim minimum pixel location, horizontally or vertically, to consider
+     * @param maxDim maximum pixel location, horizontally or vertically, to consider
+     * @param horizontal if true, we're scanning left-right, instead of up-down
+     * @return int[] with start and end of found range, or null if no such range is found
+     *  (e.g. only white was found)
+     */
+
+    private function blackWhiteRange($fixedDimension, $maxWhiteRun, $minDim, $maxDim, $horizontal){
+        $center = ($minDim + $maxDim) / 2;
+
+    // Scan left/up first
+    $start = $center;
+    while ($start >= $minDim) {
+        if ($horizontal ? $this->image->get($start, $fixedDimension) : $this->image->get($fixedDimension, $start)) {
+            $start--;
+        } else {
+            $whiteRunStart = $start;
+        do {
+           $start--;
+        } while ($start >= $minDim && !($horizontal ? $this->image->get($start, $fixedDimension) :
+                $this->image->get($fixedDimension, $start)));
+        $whiteRunSize = $whiteRunStart - $start;
+        if ($start < $minDim || $whiteRunSize > $maxWhiteRun) {
+            $start = $whiteRunStart;
+            break;
+        }
+      }
+    }
+    $start++;
+
+    // Then try right/down
+    $end = $center;
+    while ($end < $maxDim) {
+        if ($horizontal ? $this->image->get($end, $fixedDimension) : $this->image->get($fixedDimension, $end)) {
+            $end++;
+        } else {
+            $whiteRunStart = $end;
+        do {
+            $end++;
+        } while ($end < $maxDim && !($horizontal ? $this->image->get($end, $fixedDimension) :
+                $this->image->get($fixedDimension, $end)));
+        $whiteRunSize = $end - $whiteRunStart;
+        if ($end >= $maxDim || $whiteRunSize > $maxWhiteRun) {
+            $end = $whiteRunStart;
+            break;
+        }
+      }
+    }
+    $end--;
+
+    return $end > $start ? array($start, $end) : null;
+    }
+}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 d: url("data:image/gif;base64,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");
+	height: 100%;
+	filter: alpha(opacity=25); /* support: IE8 */
+	opacity: 0.25;
+}
+.ui-progressbar-indeterminate .ui-progressbar-value {
+	background-image: none;
+}
+.ui-selectable {
+	-ms-touch-action: none;
+	touch-action: none;
+}
+.ui-selectable-helper {
+	position: absolute;
+	z-index: 100;
+	border: 1px dotted black;
+}
+.ui-selectmenu-menu {
+	padding: 0;
+	margin: 0;
+	position: absolute;
+	top: 0;
+	left: 0;
+	display: none;
+}
+.ui-selectmenu-menu .ui-menu {
+	overflow: auto;
+	overflow-x: hidden;
+	padding-bottom: 1px;
+}
+.ui-selectmenu-menu .ui-menu .ui-selectmenu-optgroup {
+	font-size: 1em;
+	font-weight: bold;
+	line-height: 1.5;
+	padding: 2px 0.4em;
+	margin: 0.5em 0 0 0;
+	height: auto;
+	border: 0;
+}
+.ui-selectmenu-open {
+	display: block;
+}
+.ui-selectmenu-text {
+	display: block;
+	margin-right: 20px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.ui-selectmenu-button.ui-button {
+	text-align: left;
+	white-space: nowrap;
+	width: 14em;
+}
+.ui-selectmenu-icon.ui-icon {
+	float: right;
+	margin-top: 0;
+}
+.ui-slider {
+	position: relative;
+	text-align: left;
+}
+.ui-slider .ui-slider-handle {
+	position: absolute;
+	z-index: 2;
+	width: 1.2em;
+	height: 1.2em;
+	cursor: default;
+	-ms-touch-action: none;
+	touch-action: none;
+}
+.ui-slider .ui-slider-range {
+	position: absolute;
+	z-index: 1;
+	font-size: .7em;
+	display: block;
+	border: 0;
+	background-position: 0 0;
+}
+
+/* support: IE8 - See #6727 */
+.ui-slider.ui-state-disabled .ui-slider-handle,
+.ui-slider.ui-state-disabled .ui-slider-range {
+	filter: inherit;
+}
+
+.ui-slider-horizontal {
+	height: .8em;
+}
+.ui-slider-horizontal .ui-slider-handle {
+	top: -.3em;
+	margin-left: -.6em;
+}
+.ui-slider-horizontal .ui-slider-range {
+	top: 0;
+	height: 100%;
+}
+.ui-slider-horizontal .ui-slider-range-min {
+	left: 0;
+}
+.ui-slider-horizontal .ui-slider-range-max {
+	right: 0;
+}
+
+.ui-slider-vertical {
+	width: .8em;
+	height: 100px;
+}
+.ui-slider-vertical .ui-slider-handle {
+	left: -.3em;
+	margin-left: 0;
+	margin-bottom: -.6em;
+}
+.ui-slider-vertical .ui-slider-range {
+	left: 0;
+	width: 100%;
+}
+.ui-slider-vertical .ui-slider-range-min {
+	bottom: 0;
+}
+.ui-slider-vertical .ui-slider-range-max {
+	top: 0;
+}
+.ui-sortable-handle {
+	-ms-touch-action: none;
+	touch-action: none;
+}
+.ui-spinner {
+	position: relative;
+	display: inline-block;
+	overflow: hidden;
+	padding: 0;
+	vertical-align: middle;
+}
+.ui-spinner-input {
+	border: none;
+	background: none;
+	color: inherit;
+	padding: .222em 0;
+	margin: .2em 0;
+	vertical-align: middle;
+	margin-left: .4em;
+	margin-right: 2em;
+}
+.ui-spinner-button {
+	width: 1.6em;
+	height: 50%;
+	font-size: .5em;
+	padding: 0;
+	margin: 0;
+	text-align: center;
+	position: absolute;
+	cursor: default;
+	display: block;
+	overflow: hidden;
+	right: 0;
+}
+/* more specificity required here to override default borders */
+.ui-spinner a.ui-spinner-button {
+	border-top-style: none;
+	border-bottom-style: none;
+	border-right-style: none;
+}
+.ui-spinner-up {
+	top: 0;
+}
+.ui-spinner-down {
+	bottom: 0;
+}
+.ui-tabs {
+	position: relative;/* position: relative prevents IE scroll bug (element with position: relative inside container with overflow: auto appear as "fixed") */
+	padding: .2em;
+}
+.ui-tabs .ui-tabs-nav {
+	margin: 0;
+	padding: .2em .2em 0;
+}
+.ui-tabs .ui-tabs-nav li {
+	list-style: none;
+	float: left;
+	position: relative;
+	top: 0;
+	margin: 1px .2em 0 0;
+	border-bottom-width: 0;
+	padding: 0;
+	white-space: nowrap;
+}
+.ui-tabs .ui-tabs-nav .ui-tabs-anchor {
+	float: left;
+	padding: .5em 1em;
+	text-decoration: none;
+}
+.ui-tabs .ui-tabs-nav li.ui-tabs-active {
+	margin-bottom: -1px;
+	padding-bottom: 1px;
+}
+.ui-tabs .ui-tabs-nav li.ui-tabs-active .ui-tabs-anchor,
+.ui-tabs .ui-tabs-nav li.ui-state-disabled .ui-tabs-anchor,
+.ui-tabs .ui-tabs-nav li.ui-tabs-loading .ui-tabs-anchor {
+	cursor: text;
+}
+.ui-tabs-collapsible .ui-tabs-nav li.ui-tabs-active .ui-tabs-anchor {
+	cursor: pointer;
+}
+.ui-tabs .ui-tabs-panel {
+	display: block;
+	border-width: 0;
+	padding: 1em 1.4em;
+	background: none;
+}
+.ui-tooltip {
+	padding: 8px;
+	position: absolute;
+	z-index: 9999;
+	max-width: 300px;
+}
+body .ui-tooltip {
+	border-width: 2px;
+}
