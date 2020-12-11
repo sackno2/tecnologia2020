@@ -2,9 +2,9 @@
   ob_start();
   require_once('includes/load.php');
   if($session->isUserLoggedIn(true)) { redirect('home.php', false);}
-  echo "Una prueba con Git";
 
 
+  
 ?>
 <?php include_once('layouts/header.php'); ?>
 <div class="login-page">
