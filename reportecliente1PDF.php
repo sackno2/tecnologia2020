@@ -99,7 +99,7 @@ table.liste td.col1 { color: #FF0000; }
 </page>
 <?php
 $content = ob_get_clean();
- // convert to PDF   
+ // convert to PDF no tiene etiqueta de cierre PHP  
     try
     {
         $html2pdf = new HTML2PDF("P", "A4", "es");
